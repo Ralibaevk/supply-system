@@ -1,1 +1,195 @@
-<h1>Привет! Это модуль Supply от Logiqa.kz</h1>
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
+  <title>Logiqa Supply</title>
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+  <div id="loader" class="hidden">
+    <div class="spinner"></div>
+  </div>
+
+  <!-- 1. DASHBOARD (ГЛАВНАЯ) -->
+  <div id="view-dashboard" class="screen">
+    <div class="dash-header">
+      <div class="dash-title">
+        <h1>Logiqa Projects</h1>
+      </div>
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-text" onclick="app.openArchive()">📦 Архив</button>
+        <button class="btn btn-text" onclick="app.openSuppliersEdit()">👥 Поставщики</button>
+        <button class="btn btn-primary" onclick="app.newProject()"><i class="fas fa-plus"></i> Проект</button>
+      </div>
+    </div>
+
+    <div class="kanban-board">
+      <div class="k-col" id="col-new" ondragover="app.allowDrop(event)" ondrop="app.drop(event, 'new')">
+        <div class="k-head h-new">📝 Формируется</div>
+        <div class="k-list" id="list-new"></div>
+      </div>
+      <div class="k-col" id="col-active" ondragover="app.allowDrop(event)" ondrop="app.drop(event, 'active')">
+        <div class="k-head h-active">🛒 Закуп</div>
+        <div class="k-list" id="list-active"></div>
+      </div>
+      <div class="k-col" id="col-done" ondragover="app.allowDrop(event)" ondrop="app.drop(event, 'done')">
+        <div class="k-head h-done">✅ Завершен</div>
+        <div class="k-list" id="list-done"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. ARCHIVE (АРХИВ) -->
+  <div id="view-archive" class="screen hidden">
+    <div class="dash-header">
+      <div class="dash-title">
+        <button class="btn btn-text" onclick="app.goHome()"><i class="fas fa-arrow-left"></i> Назад</button>
+        <span style="font-size:20px; font-weight:bold; margin-left:10px;">📦 Завершенные закупы</span>
+      </div>
+    </div>
+    <div class="project-grid" id="archiveList" style="padding:20px;"></div>
+  </div>
+
+  <!-- 3. MANAGER (МЕНЕДЖЕР) -->
+  <div id="view-manager" class="screen hidden">
+    <div class="dash-header" style="padding: 10px 20px;">
+      <button class="btn btn-text" onclick="app.goHome()"><i class="fas fa-arrow-left"></i> Назад</button>
+      <input type="text" id="mgrName" placeholder="Название проекта" class="header-input">
+      <button class="btn btn-primary" onclick="manager.save()">💾 Сохранить</button>
+    </div>
+    <div class="mgr-toolbar">
+      <input type="file" id="xlsInput" hidden>
+      <button class="btn btn-def" onclick="document.getElementById('xlsInput').click()">📂 Импорт</button>
+      <button class="btn btn-def" onclick="manager.addRow()">➕ Стр.</button>
+      <div class="sep"></div>
+      <button class="btn btn-p" onclick="manager.sort()">🔃 Сорт.</button>
+      <button class="btn btn-w" onclick="manager.openMerge()">🔗 Объед.</button>
+      <button class="btn btn-p" onclick="manager.openSup()">🚚 Пост.</button>
+      <button class="btn btn-d" onclick="manager.delSel()">🗑️</button>
+      <div style="flex:1"></div>
+      <input type="text" id="mgrSearch" placeholder="🔍..." oninput="manager.render()"
+        style="width:100px; padding:5px;">
+      <span id="mgrTotal" style="font-weight:bold; color:#666; margin-left:10px;">0</span>
+    </div>
+    <div class="mgr-grid">
+      <table id="mgrTable">
+        <thead>
+          <tr>
+            <th class="chk"><input type="checkbox" id="mgrAll" onchange="manager.toggleAll(this.checked)"></th>
+            <th>Артикул</th>
+            <th>Наименование</th>
+            <th>Кол-во</th>
+            <th>Ед.</th>
+            <th>Цена</th>
+            <th>Сумма</th>
+            <th>Поставщик</th>
+            <th>Примечание</th>
+          </tr>
+        </thead>
+        <tbody id="mgrBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 4. BUYER (СНАБЖЕНЕЦ - ВЕРНУЛИ ЕГО НА МЕСТО) -->
+  <div id="view-buyer" class="screen hidden">
+    <div class="buy-header">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <button class="btn" style="color:white; padding:0;" onclick="app.goHome()"><i
+            class="fas fa-arrow-left"></i></button>
+        <span
+          style="font-weight:bold; font-size:16px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:150px;"
+          id="buyTitle">Проект</span>
+        <div style="width:20px"></div>
+      </div>
+      <div class="buy-filters">
+        <select id="buySupFilter" onchange="buyer.render()">
+          <option value="ALL">Все поставщики</option>
+        </select>
+      </div>
+      <div class="buy-progress">
+        <div class="buy-bar" id="buyBar"></div>
+      </div>
+    </div>
+    <div class="buy-list" id="buyList"></div>
+    <div class="footer"><span>Факт:</span><span id="buyTotal" style="color:var(--primary)">0 ₸</span></div>
+  </div>
+
+  <!-- === МОДАЛЬНЫЕ ОКНА (ТЕПЕРЬ ОНИ СНАРУЖИ, ЭТО ВАЖНО) === -->
+
+  <!-- Импорт -->
+  <div id="modal" class="hidden">
+    <div class="dash-header">
+      <h2>Импорт</h2>
+      <div>
+        <button class="btn btn-text" onclick="document.getElementById('modal').classList.add('hidden')">Отмена</button>
+        <button class="btn btn-primary" onclick="mapper.apply()">ОК</button>
+      </div>
+    </div>
+    <div style="flex:1; overflow:auto; padding:20px;">
+      <table id="mapTable"></table>
+    </div>
+  </div>
+
+  <!-- Редактор поставщиков -->
+  <div id="supEditModal" class="modal-overlay hidden">
+    <div class="modal-box" style="width:600px; max-width:95%;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+        <h3>👥 База поставщиков</h3>
+        <button class="btn btn-primary" onclick="app.addSupplierRow()">+ Добавить</button>
+      </div>
+      <div style="max-height:400px; overflow:auto;">
+        <table style="width:100%;">
+          <thead>
+            <tr>
+              <th>Имя</th>
+              <th>Телефон</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="supEditBody"></tbody>
+        </table>
+      </div>
+      <div style="text-align:right; margin-top:20px;">
+        <button class="btn btn-text"
+          onclick="document.getElementById('supEditModal').classList.add('hidden')">Закрыть</button>
+        <button class="btn btn-p" onclick="app.saveSuppliers()">Сохранить изменения</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Объединение -->
+  <div id="mergeModal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <h3>Объединение</h3>
+      <div id="mergeList" style="max-height:300px; overflow:auto;"></div>
+      <div style="text-align:right; margin-top:10px;">
+        <button class="btn btn-text"
+          onclick="document.getElementById('mergeModal').classList.add('hidden')">Отм.</button>
+        <button class="btn btn-w" onclick="manager.applyMerge()">ОК</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Выбор поставщика -->
+  <div id="supModal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <h3>Поставщик</h3>
+      <select id="supSelect" style="width:100%; padding:10px; margin:10px 0; border:1px solid #ccc;"></select>
+      <div style="text-align:right;">
+        <button class="btn btn-text" onclick="document.getElementById('supModal').classList.add('hidden')">Отм.</button>
+        <button class="btn btn-p" onclick="manager.applySup()">ОК</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+
+</html>
