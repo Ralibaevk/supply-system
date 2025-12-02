@@ -402,86 +402,219 @@ const mapper = {
   }
 };
 
+// === BUYER LOGIC (OFFLINE-FIRST) ===
 const buyer = {
-  data: [],
+  data: [],        // Полные данные с сервера
+  localData: [],   // Локальная копия для редактирования
+  hasChanges: false,
+  currentFilter: 'ALL',
   currentSheet: '',
+
   async open(name) {
+    if (this.hasChanges && !confirm("Есть несохраненные изменения. Сбросить их?")) return;
+
     this.currentSheet = name;
     document.querySelectorAll('.screen').forEach(el => el.classList.add('hidden'));
     document.getElementById('view-buyer').classList.remove('hidden');
     document.getElementById('buyTitle').innerText = name;
-    this.data = await api.call('getProjectData', { sheetName: name });
-    this.initFilters();
+
+    // Сброс состояния
+    this.hasChanges = false;
+    this.toggleSaveBar(false);
+    document.getElementById('buyList').innerHTML = '<div style="text-align:center; padding:40px; color:#999;">Загрузка...</div>';
+
+    // Загрузка
+    try {
+      const serverData = await api.call('getProjectData', { sheetName: name });
+      // Глубокая копия данных для локальной работы
+      this.data = JSON.parse(JSON.stringify(serverData));
+      this.localData = JSON.parse(JSON.stringify(serverData));
+
+      this.renderFilters();
+      this.render();
+    } catch (e) {
+      alert("Ошибка загрузки: " + e.message);
+      app.goHome();
+    }
+  },
+
+  // Генерация кнопок-фильтров
+  renderFilters() {
+    const container = document.getElementById('buyFilters');
+
+    // Собираем уникальных поставщиков из ЭТОГО списка
+    const uniqueSuppliers = [...new Set(this.localData.map(i => i.supplier).filter(s => s && s.trim() !== ""))].sort();
+
+    let html = `<div class="filter-chip ${this.currentFilter === 'ALL' ? 'active' : ''}" onclick="buyer.setFilter('ALL')">Все</div>`;
+
+    // Кнопка для "Без поставщика"
+    const hasEmpty = this.localData.some(i => !i.supplier);
+    if (hasEmpty) {
+      html += `<div class="filter-chip ${this.currentFilter === 'NONE' ? 'active' : ''}" onclick="buyer.setFilter('NONE')">Не назначено</div>`;
+    }
+
+    uniqueSuppliers.forEach(sup => {
+      const active = this.currentFilter === sup ? 'active' : '';
+      html += `<div class="filter-chip ${active}" onclick="buyer.setFilter('${sup}')">${sup}</div>`;
+    });
+
+    container.innerHTML = html;
+  },
+
+  setFilter(filter) {
+    this.currentFilter = filter;
+    this.renderFilters(); // Обновить активный класс
     this.render();
   },
-  initFilters() {
-    const sel = document.getElementById('buySupFilter');
-    const u = [...new Set([...app.suppliers.map(s => s.name), ...this.data.map(i => i.supplier)])].filter(Boolean).sort();
-    sel.innerHTML = '<option value="ALL">Все поставщики</option>' + u.map(s => `<option value="${s}">${s}</option>`).join('');
-  },
+
   render() {
-    const cont = document.getElementById('buyList');
-    cont.innerHTML = '';
-    const filter = document.getElementById('buySupFilter').value;
-    let total = 0, done = 0, visible = 0;
+    const container = document.getElementById('buyList');
+    container.innerHTML = '';
 
-    this.data.forEach(item => {
-      if (filter !== 'ALL' && item.supplier !== filter) return;
-      visible++; if (item.done) done++; total += (item.qty * item.price);
+    let totalSum = 0;
+    let totalCount = 0;
+    let doneCount = 0;
 
-      const supObj = app.suppliers.find(s => s.name === item.supplier);
-      const phoneHtml = supObj && supObj.phone ? `<a href="tel:${supObj.phone}" style="color:#2e7d32; text-decoration:none;"><i class="fas fa-phone"></i></a>` : '';
+    this.localData.forEach(item => {
+      // 1. Фильтрация
+      let visible = true;
+      if (this.currentFilter === 'NONE') {
+        if (item.supplier) visible = false;
+      } else if (this.currentFilter !== 'ALL') {
+        if (item.supplier !== this.currentFilter) visible = false;
+      }
 
+      // Считаем статистику по ВСЕМУ проекту, а не только фильтру
+      if (item.done) doneCount++;
+      totalCount++;
+      totalSum += (item.qty * item.price);
+
+      if (!visible) return;
+
+      // 2. Отрисовка карточки
       const div = document.createElement('div');
       div.className = `b-card ${item.done ? 'done' : ''}`;
+
       div.innerHTML = `
-        <div class="b-head">${item.name}</div>
-        <div style="font-size:12px; color:#666; margin-bottom:5px;">${item.note || ""}</div>
-        <div class="b-meta">
-          <span class="b-badge">${item.qty} ${item.unit}</span>
-          <div style="display:flex; align-items:center; gap:5px;">
-            ${phoneHtml}
-            <span style="font-weight:bold; font-size:13px; color:#555;">${item.supplier || "Нет пост."}</span>
+        <div class="b-row-top">
+          <div class="b-name">${item.name}</div>
+          <div class="b-check-btn" onclick="buyer.toggle(${item.rowIndex})">
+            ${item.done ? '<i class="fas fa-check"></i>' : ''}
           </div>
         </div>
-        <div class="b-actions">
-          <input type="number" class="b-price" value="${item.price || ''}" placeholder="0" 
-            onchange="buyer.upd(${item.rowIndex}, 'price', this.value)">
-          <button class="b-btn" onclick="buyer.toggle(${item.rowIndex})">
-            ${item.done ? '✔' : 'КУПИТЬ'}
-          </button>
-        </div>`;
-      cont.appendChild(div);
+        
+        <div class="b-row-mid">
+          <span class="b-badge">${item.qty} ${item.unit}</span>
+          ${item.supplier ? `<span class="b-supplier"><i class="fas fa-truck"></i> ${item.supplier}</span>` : ''}
+        </div>
+        
+        ${item.note ? `<div style="font-size:12px; color:#888; margin-top:5px;">Note: ${item.note}</div>` : ''}
+
+        <div class="b-row-bot">
+          <input type="number" class="b-price-inp" 
+            value="${item.price > 0 ? item.price : ''}" 
+            placeholder="Цена..." 
+            onchange="buyer.updatePrice(${item.rowIndex}, this.value)">
+          <div style="font-weight:bold; font-size:14px; color:#555;">₸</div>
+        </div>
+      `;
+      container.appendChild(div);
     });
-    document.getElementById('buyTotal').innerText = total.toLocaleString() + ' ₸';
-    document.getElementById('buyBar').style.width = (visible ? (done / visible) * 100 : 0) + '%';
+
+    // Обновляем шапку
+    document.getElementById('buyProgressText').innerText = `${doneCount} из ${totalCount} куплено`;
+    document.getElementById('buyTotalSum').innerText = totalSum.toLocaleString() + ' ₸';
   },
-  upd(row, f, v) {
-    const item = this.data.find(i => i.rowIndex === row);
-    if (f === 'price') v = parseFloat(v) || 0;
-    item[f] = v;
-    if (f === 'price') this.render();
-    api.call('updateItem', { sheetName: this.currentSheet, rowIndex: row, field: f, value: v }, 'POST');
+
+  // === ЛОКАЛЬНЫЕ ИЗМЕНЕНИЯ (МГНОВЕННЫЕ) ===
+
+  toggle(rowIndex) {
+    const item = this.localData.find(i => i.rowIndex === rowIndex);
+    if (item) {
+      item.done = !item.done; // Меняем в памяти
+      this.markAsChanged();
+      this.render(); // Перерисовываем (быстро)
+    }
   },
-  toggle(row) {
-    const item = this.data.find(i => i.rowIndex === row);
-    item.done = !item.done;
-    this.render();
-    api.call('updateItem', { sheetName: this.currentSheet, rowIndex: row, field: 'done', value: item.done }, 'POST');
+
+  updatePrice(rowIndex, value) {
+    const item = this.localData.find(i => i.rowIndex === rowIndex);
+    if (item) {
+      item.price = parseFloat(value) || 0;
+      this.markAsChanged();
+      // render не вызываем, чтобы не сбивать фокус, только обновляем сумму в шапке
+      this.recalcTotal();
+    }
   },
-  async download(format) {
-    if (!this.currentSheet) return;
-    if (!confirm("Скачать?")) return;
-    const res = await api.call('getExportLink', { sheetName: this.currentSheet, format: format });
-    if (res.success && res.url) window.open(res.url, '_blank');
-    else alert("Ошибка экспорта");
+
+  recalcTotal() {
+    let sum = this.localData.reduce((acc, i) => acc + (i.qty * i.price), 0);
+    document.getElementById('buyTotalSum').innerText = sum.toLocaleString() + ' ₸';
   },
-  async sendWhatsapp() {
-    const supplier = document.getElementById('buySupFilter').value;
-    if (supplier === 'ALL') return alert("Выберите поставщика!");
-    const res = await api.call('getWhatsApp', { sheetName: this.currentSheet, supplierName: supplier }, 'POST');
-    if (res.success) window.open(res.url, '_blank');
-    else alert(res.error || "Ошибка генерации");
+
+  markAsChanged() {
+    this.hasChanges = true;
+    this.toggleSaveBar(true);
+  },
+
+  toggleSaveBar(show) {
+    const bar = document.getElementById('unsavedBar');
+    if (show) bar.classList.add('visible');
+    else bar.classList.remove('visible');
+  },
+
+  // === СОХРАНЕНИЕ НА СЕРВЕР (ПАКЕТНОЕ) ===
+
+  async saveBatch() {
+    const btn = document.querySelector('#unsavedBar .save-btn');
+    const oldText = btn.innerText;
+    btn.innerText = "⏳ Сохраняем...";
+    btn.disabled = true;
+
+    try {
+      // Превращаем объекты обратно в массив массивов для Code.gs saveAsNamedSheet
+      // Порядок: [id, art, name, qty, unit, price, sum, supplier, note, done]
+      const arrayData = this.localData.map(i => [
+        i.id, i.art, i.name, i.qty, i.unit, i.price,
+        (i.qty * i.price), // sum пересчитываем
+        i.supplier, i.note, i.done
+      ]);
+
+      // Используем saveProject, так как он перезаписывает лист полностью - это надежнее для пакетного обновления
+      // Важно: статус передаем 'active' (или текущий, если бы знали), чтобы не сбросился
+      await api.call('saveProject', {
+        sheetName: this.currentSheet,
+        data: arrayData,
+        status: 'active'
+      }, 'POST');
+
+      this.hasChanges = false;
+      this.toggleSaveBar(false);
+      btn.innerText = "✅ Готово";
+
+      // Обновляем "эталонные" данные
+      this.data = JSON.parse(JSON.stringify(this.localData));
+
+      setTimeout(() => {
+        btn.innerText = oldText;
+        btn.disabled = false;
+      }, 2000);
+
+    } catch (e) {
+      alert("Ошибка сохранения: " + e.message);
+      btn.innerText = oldText;
+      btn.disabled = false;
+    }
+  },
+
+  checkClose() {
+    if (this.hasChanges) {
+      if (confirm("Есть несохраненные изменения. Выйти без сохранения?")) {
+        app.goHome();
+      }
+    } else {
+      app.goHome();
+    }
   }
 };
 

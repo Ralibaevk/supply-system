@@ -58,7 +58,7 @@
 
   <!-- 3. MANAGER (МЕНЕДЖЕР) -->
   <div id="view-manager" class="screen hidden">
-    <div class="dash-header" style="padding: 10px 20px;">
+    <div class="dash-header">
       <button class="btn btn-text" onclick="app.goHome()"><i class="fas fa-arrow-left"></i> Назад</button>
       <input type="text" id="mgrName" placeholder="Название проекта" class="header-input">
       <button class="btn btn-primary" onclick="manager.save()">💾 Сохранить</button>
@@ -97,28 +97,36 @@
     </div>
   </div>
 
-  <!-- 4. BUYER (СНАБЖЕНЕЦ - ВЕРНУЛИ ЕГО НА МЕСТО) -->
+  <!-- 4. BUYER (СНАБЖЕНЕЦ - ОБНОВЛЕННЫЙ) -->
   <div id="view-buyer" class="screen hidden">
     <div class="buy-header">
       <div style="display:flex; justify-content:space-between; align-items:center;">
-        <button class="btn" style="color:white; padding:0;" onclick="app.goHome()"><i
+        <button class="btn" style="color:white; padding:0;" onclick="buyer.checkClose()"><i
             class="fas fa-arrow-left"></i></button>
-        <span
-          style="font-weight:bold; font-size:16px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:150px;"
-          id="buyTitle">Проект</span>
+        <span style="font-weight:800; font-size:18px;" id="buyTitle">Закуп</span>
         <div style="width:20px"></div>
       </div>
-      <div class="buy-filters">
-        <select id="buySupFilter" onchange="buyer.render()">
-          <option value="ALL">Все поставщики</option>
-        </select>
+
+      <!-- Прогресс текстом -->
+      <div class="buy-progress-wrap">
+        <span id="buyProgressText">0 из 0</span>
+        <span id="buyTotalSum" style="font-weight:bold;">0 ₸</span>
       </div>
-      <div class="buy-progress">
-        <div class="buy-bar" id="buyBar"></div>
+
+      <!-- Горизонтальные фильтры (Табы) -->
+      <div class="filter-scroll" id="buyFilters">
+        <!-- Кнопки генерируются JS -->
       </div>
     </div>
+
+    <!-- Список товаров -->
     <div class="buy-list" id="buyList"></div>
-    <div class="footer"><span>Факт:</span><span id="buyTotal" style="color:var(--primary)">0 ₸</span></div>
+
+    <!-- ПАНЕЛЬ СОХРАНЕНИЯ -->
+    <div id="unsavedBar">
+      <span>Есть изменения</span>
+      <button class="save-btn" onclick="buyer.saveBatch()">💾 Сохранить</button>
+    </div>
   </div>
 
   <!-- === МОДАЛЬНЫЕ ОКНА (ТЕПЕРЬ ОНИ СНАРУЖИ, ЭТО ВАЖНО) === -->

@@ -16,6 +16,10 @@ body {
   height: 100vh;
   display: flex;
   flex-direction: column;
+
+  /* ИСПРАВЛЕНИЕ: Добавляем отступ сверху */
+  padding-top: var(--tg-safe-area-inset-top, 20px);
+  /* Если открыто в Телеграм - возьмет его отступ, если нет - 20px */
 }
 
 .hidden {
@@ -119,12 +123,19 @@ body {
 }
 
 .dash-header {
-  padding: 15px 20px;
+  /* Увеличенный отступ сверху (40px) чтобы не наезжать на кнопки телефона/телеграма */
+  padding: 40px 20px 15px 20px;
+
   background: white;
   display: flex;
   justify-content: space-between;
   align-items: center;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+
+  /* Фиксация, чтобы шапка не уезжала при скролле (опционально, но удобно) */
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 
 /* === KANBAN BOARD === */
@@ -334,106 +345,217 @@ tr.has-supplier {
 }
 
 /* === BUYER === */
+/* === BUYER (СНАБЖЕНЕЦ - НОВЫЙ ДИЗАЙН) === */
 .buy-header {
   background: var(--primary);
   color: white;
-  padding: 15px;
+  padding: 25px 20px 5px 20px;
+  /* Меньше паддинг снизу */
+  border-radius: 0 0 20px 20px;
+  /* Закругление как на макете */
+  box-shadow: 0 4px 15px rgba(98, 0, 234, 0.2);
+  z-index: 100;
+  position: relative;
 }
 
-.buy-filters select {
-  width: 100%;
-  padding: 8px;
-  border-radius: 6px;
-  border: none;
-  margin-top: 10px;
-  font-weight: bold;
+/* Фильтры - Горизонтальный скролл */
+.filter-scroll {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 15px 0;
+  scrollbar-width: none;
+  /* Скрыть скроллбар */
+  -ms-overflow-style: none;
 }
 
-.buy-progress {
-  height: 4px;
-  background: rgba(255, 255, 255, 0.3);
-  margin-top: 10px;
-  border-radius: 2px;
+.filter-scroll::-webkit-scrollbar {
+  display: none;
 }
 
-.buy-bar {
-  height: 100%;
-  background: #00e676;
-  width: 0%;
-  transition: 0.3s;
+.filter-chip {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: 0.2s;
 }
 
+.filter-chip.active {
+  background: white;
+  color: var(--primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.buy-progress-wrap {
+  margin-top: 5px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+/* Список карточек */
 .buy-list {
   flex: 1;
   overflow-y: auto;
-  padding: 10px;
-  padding-bottom: 80px;
+  padding: 20px;
+  padding-bottom: 100px;
+  /* Место под кнопку сохранения */
 }
 
+/* Карточка товара (как на макете) */
 .b-card {
   background: white;
-  padding: 15px;
-  border-radius: 12px;
-  margin-bottom: 10px;
-  border-left: 4px solid #ddd;
-}
-
-.b-card.done {
-  border-left-color: #4caf50;
-  opacity: 0.7;
-  background: #f1f8e9;
-}
-
-.b-head {
-  font-size: 16px;
-  font-weight: 800;
-  margin-bottom: 5px;
-}
-
-.b-meta {
+  padding: 16px;
+  border-radius: 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.02);
+  transition: 0.2s;
+  position: relative;
   display: flex;
-  justify-content: space-between;
-  margin-bottom: 10px;
-  font-size: 13px;
-  color: #666;
-}
-
-.b-actions {
-  display: flex;
+  flex-direction: column;
   gap: 10px;
 }
 
-.b-price {
-  flex: 1;
-  padding: 10px;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  font-size: 16px;
-  font-weight: bold;
+.b-card.done {
+  background: #f8fff9;
+  border: 1px solid #c8e6c9;
+  opacity: 0.8;
 }
 
-.b-btn {
-  padding: 0 20px;
-  background: var(--primary);
-  color: white;
-  border-radius: 8px;
-  border: none;
-  font-weight: bold;
-}
-
-.b-card.done .b-btn {
-  background: transparent;
-  color: #4caf50;
-  border: 2px solid #4caf50;
-}
-
-.footer {
-  padding: 15px;
-  background: white;
-  border-top: 1px solid #ddd;
+/* Верхняя часть карточки */
+.b-row-top {
   display: flex;
   justify-content: space-between;
-  font-weight: bold;
+  align-items: flex-start;
+}
+
+.b-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: #333;
+  line-height: 1.3;
+  margin-right: 10px;
+}
+
+/* Средняя часть (инфо) */
+.b-row-mid {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.b-badge {
+  background: #f3e5f5;
+  color: var(--primary);
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.b-supplier {
+  font-size: 12px;
+  color: #666;
+  background: #f5f5f5;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+/* Нижняя часть (действия) */
+.b-row-bot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 5px;
+}
+
+.b-price-inp {
+  flex: 1;
+  background: #fafafa;
+  border: 1px solid #eee;
+  padding: 10px;
+  border-radius: 10px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #333;
+  outline: none;
+}
+
+.b-price-inp:focus {
+  background: #fff;
+  border-color: var(--primary);
+}
+
+/* Чекбокс-кнопка */
+.b-check-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  border: 2px solid #eee;
+  background: white;
+  color: #ddd;
+  font-size: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.b-card.done .b-check-btn {
+  background: #00c853;
+  border-color: #00c853;
+  color: white;
+  box-shadow: 0 4px 10px rgba(0, 200, 83, 0.3);
+}
+
+/* ПАНЕЛЬ СОХРАНЕНИЯ (Всплывающая снизу) */
+#unsavedBar {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%) translateY(150%);
+  /* Скрыта внизу */
+  background: #2d3436;
+  color: white;
+  padding: 12px 20px;
+  border-radius: 30px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+  z-index: 2000;
+  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  width: 90%;
+  max-width: 400px;
+}
+
+#unsavedBar.visible {
+  transform: translateX(-50%) translateY(0);
+  /* Показать */
+}
+
+.save-btn {
+  margin-left: auto;
+  background: var(--primary);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
 }
 
 /* === MODALS === */
