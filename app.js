@@ -6,173 +6,193 @@ const api = {
     document.getElementById('loader').classList.remove('hidden');
     let url = `${API_URL}?action=${action}`;
     let opts = { method };
+
     if (method === 'POST') {
       opts.body = JSON.stringify(params);
       opts.headers = { "Content-Type": "text/plain;charset=utf-8" };
     } else {
       for (let k in params) url += `&${k}=${encodeURIComponent(params[k])}`;
     }
+
     try {
       const res = await fetch(url, opts);
       const json = await res.json();
       document.getElementById('loader').classList.add('hidden');
-      if (json.error) throw new Error(json.error);
+
+      if (json.error) {
+        console.error("API Error:", json.error);
+        throw new Error(json.error);
+      }
       return json;
     } catch (e) {
       document.getElementById('loader').classList.add('hidden');
-      alert("Ошибка: " + e.message);
+      console.error("Network/Fetch Error:", e);
+      // Не показываем alert на каждый чих, пишем в консоль
       throw e;
     }
   }
 };
 
 const app = {
-  suppliers: [], // Array of {name, phone}
+  suppliers: [],
 
   async init() {
-    this.refreshDashboard();
+    console.log("App init started...");
+
+    // 1. Параллельная загрузка (чтобы ошибка в одном не ломала другое)
+    Promise.allSettled([
+      this.loadSuppliers(),
+      this.refreshDashboard()
+    ]).then(() => {
+      console.log("Initial data loaded.");
+    });
+
+    // 2. Железобетонная привязка загрузчика файлов
+    const input = document.getElementById('xlsInput');
+    if (input) {
+      // Клонируем, чтобы убить старые слушатели
+      const newInput = input.cloneNode(true);
+      input.parentNode.replaceChild(newInput, input);
+
+      newInput.addEventListener('change', (e) => {
+        console.log("File selected");
+        manager.handleFile(e);
+      });
+    } else {
+      console.error("Input #xlsInput not found!");
+    }
+  },
+
+  async loadSuppliers() {
     try {
       this.suppliers = await api.call('getSuppliers');
-    } catch (e) { }
-
-    // File handler
-    const input = document.getElementById('xlsInput');
-    const newInput = input.cloneNode(true);
-    input.parentNode.replaceChild(newInput, input);
-    newInput.addEventListener('change', (e) => manager.handleFile(e));
+      console.log("Suppliers loaded:", this.suppliers.length);
+    } catch (e) {
+      console.warn("Failed to load suppliers. Using empty list.");
+      this.suppliers = [];
+    }
   },
 
   async refreshDashboard() {
-    const data = await api.call('getProjectsSummary'); // Получаем сводку {name, status, total, done}
+    try {
+      const data = await api.call('getProjectsSummary');
+      console.log("Projects loaded:", data.length);
 
-    // Очистка колонок
-    ['new', 'active', 'done'].forEach(id => document.getElementById('list-' + id).innerHTML = '');
+      ['new', 'active', 'done'].forEach(id => {
+        const el = document.getElementById('list-' + id);
+        if (el) el.innerHTML = '';
+      });
 
-    if (data.length === 0) {
-      document.getElementById('list-new').innerHTML = '<div style="color:#999; text-align:center;">Нет проектов</div>';
-      return;
+      if (!data || data.length === 0) {
+        const el = document.getElementById('list-new');
+        if (el) el.innerHTML = '<div style="color:#999; text-align:center; padding:20px;">Нет проектов</div>';
+        return;
+      }
+
+      data.forEach(p => {
+        const status = p.status || 'new';
+        const container = document.getElementById(`list-${status}`);
+        if (!container) return;
+
+        const notBought = p.total - p.done;
+        let badgeHtml = '';
+        if (notBought > 0) badgeHtml = `<span class="ind-bad"><i class="fas fa-circle"></i> ${notBought}</span>`;
+        else if (p.total > 0) badgeHtml = `<span class="ind-good"><i class="fas fa-check-circle"></i> Готово</span>`;
+        else badgeHtml = `<span style="font-size:12px; color:#999;">Пусто</span>`;
+
+        let archiveBtn = status === 'done'
+          ? `<button class="btn btn-def" style="width:100%; margin-top:5px; font-size:12px;" onclick="app.archiveProject('${p.name}')">📦 В Архив</button>`
+          : '';
+
+        const card = document.createElement('div');
+        card.className = 'p-card';
+        card.draggable = true;
+        card.ondragstart = (e) => app.drag(e, p.name);
+
+        card.innerHTML = `
+          <div class="pc-top">
+            <span class="pc-name">${p.name}</span>
+            <button onclick="app.deleteProject('${p.name}')" style="background:none; border:none; color:#ccc; cursor:pointer;">×</button>
+          </div>
+          <div class="pc-ind">${badgeHtml}</div>
+          <div class="pc-actions">
+            <button class="btn btn-def" onclick="manager.open('${p.name}')">✏️</button>
+            <button class="btn btn-def" onclick="buyer.open('${p.name}')">🛒</button>
+          </div>
+          ${archiveBtn}
+          <select class="mob-status-btn" onchange="app.moveProject('${p.name}', this.value)">
+            <option value="new" ${status == 'new' ? 'selected' : ''}>Формируется</option>
+            <option value="active" ${status == 'active' ? 'selected' : ''}>В закуп</option>
+            <option value="done" ${status == 'done' ? 'selected' : ''}>Завершен</option>
+          </select>
+        `;
+        container.appendChild(card);
+      });
+    } catch (e) {
+      console.error("Dashboard error:", e);
+      alert("Не удалось загрузить проекты. Проверьте консоль.");
     }
-
-    data.forEach(p => {
-      // Определяем статус (по умолчанию new)
-      const status = p.status || 'new';
-      const container = document.getElementById(`list-${status}`);
-      if (!container) return; // Защита
-
-      // Индикаторы
-      const notBought = p.total - p.done;
-      let badgeHtml = '';
-      if (notBought > 0) {
-        badgeHtml = `<span class="ind-bad"><i class="fas fa-circle"></i> ${notBought}</span>`;
-      } else if (p.total > 0 && notBought === 0) {
-        badgeHtml = `<span class="ind-good"><i class="fas fa-check-circle"></i> Готово</span>`;
-      } else {
-        badgeHtml = `<span style="font-size:12px; color:#999;">Пусто</span>`;
-      }
-
-      // Кнопка "В АРХИВ" появляется только если проект в колонке "Завершен"
-      let archiveBtn = '';
-      if (status === 'done') {
-        archiveBtn = `<button class="p-btn p-btn-arc" onclick="app.archiveProject('${p.name}')" style="background:#607d8b; color:white; margin-top:5px; width:100%;">📦 В Архив</button>`;
-      }
-
-      // Карточка
-      const card = document.createElement('div');
-      card.className = 'p-card';
-      card.draggable = true;
-      // События для Drag-and-Drop
-      card.ondragstart = (e) => app.drag(e, p.name);
-
-      card.innerHTML = `
-        <div class="pc-top">
-          <span class="pc-name">${p.name}</span>
-          <button onclick="app.deleteProject('${p.name}')" style="background:none; border:none; color:#ccc; cursor:pointer;">×</button>
-        </div>
-        <div class="pc-ind">${badgeHtml}</div>
-        
-        <div class="pc-actions">
-          <button class="btn btn-def" onclick="manager.open('${p.name}')">✏️</button>
-          <button class="btn btn-def" onclick="buyer.open('${p.name}')">🛒</button>
-        </div>
-        ${archiveBtn}
-
-        <select class="mob-status-btn" onchange="app.moveProject('${p.name}', this.value)">
-          <option value="new" ${status == 'new' ? 'selected' : ''}>Формируется</option>
-          <option value="active" ${status == 'active' ? 'selected' : ''}>В закуп</option>
-          <option value="done" ${status == 'done' ? 'selected' : ''}>Завершен</option>
-        </select>
-      `;
-      container.appendChild(card);
-    });
   },
 
-  // === ЛОГИКА АРХИВАЦИИ ===
+  // === ARCHIVE & RESTORE ===
   async archiveProject(name) {
-    if (!confirm(`Перенести "${name}" в завершенные (Архив)?\nПроект будет удален с доски и сохранен в истории.`)) return;
+    if (!confirm(`В архив "${name}"?`)) return;
     await api.call('archiveProject', { sheetName: name }, 'POST');
     this.refreshDashboard();
   },
-
   async openArchive() {
     document.querySelectorAll('.screen').forEach(el => el.classList.add('hidden'));
     document.getElementById('view-archive').classList.remove('hidden');
-
-    const list = await api.call('getArchivedList');
-    const grid = document.getElementById('archiveList');
-    grid.innerHTML = list.length ? '' : '<div style="text-align:center; color:#999; width:100%;">Архив пуст</div>';
-
-    list.forEach(item => {
-      const card = document.createElement('div');
-      card.className = 'project-card';
-      card.style.borderLeftColor = '#607d8b';
-      card.innerHTML = `
-        <div class="pc-top">
-          <span class="pc-name">${item.name}</span>
-          <span style="font-size:12px; color:#888;">${item.date}</span>
-        </div>
-        <button class="btn btn-primary" style="width:100%; margin-top:10px;" onclick="app.unarchiveProject('${item.id}')">♻️ Восстановить</button>
-      `;
-      grid.appendChild(card);
-    });
+    try {
+      const list = await api.call('getArchivedList');
+      const grid = document.getElementById('archiveList');
+      grid.innerHTML = list.length ? '' : '<div style="text-align:center; color:#999; padding:20px;">Архив пуст</div>';
+      list.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'p-card';
+        card.style.borderLeftColor = '#607d8b';
+        card.innerHTML = `
+          <div class="pc-top"><span class="pc-name">${item.name}</span><span style="font-size:12px; color:#888;">${item.date}</span></div>
+          <button class="btn btn-primary" style="width:100%; margin-top:10px;" onclick="app.unarchiveProject('${item.id}')">♻️ Восстановить</button>
+        `;
+        grid.appendChild(card);
+      });
+    } catch (e) { alert("Ошибка архива"); }
   },
-
   async unarchiveProject(id) {
-    if (!confirm("Восстановить этот проект на доску?")) return;
+    if (!confirm("Восстановить?")) return;
     await api.call('unarchiveProject', { id: id }, 'POST');
-    alert("Проект восстановлен!");
     this.goHome();
   },
 
-  // === DRAG AND DROP ===
-  drag(ev, name) {
-    ev.dataTransfer.setData("text", name);
-  },
-  allowDrop(ev) {
-    ev.preventDefault();
-  },
+  // === DRAG & DROP ===
+  drag(ev, name) { ev.dataTransfer.setData("text", name); },
+  allowDrop(ev) { ev.preventDefault(); },
   async drop(ev, newStatus) {
     ev.preventDefault();
     const name = ev.dataTransfer.getData("text");
     await this.moveProject(name, newStatus);
   },
   async moveProject(name, status) {
-    // Оптимистичное обновление (можно сразу перерисовать, но проще перезагрузить)
     await api.call('updateStatus', { sheetName: name, status: status }, 'POST');
     this.refreshDashboard();
   },
 
-  // === SUPPLIERS CRUD ===
+  // === SUPPLIERS ===
   openSuppliersEdit() {
     const tbody = document.getElementById('supEditBody');
     tbody.innerHTML = '';
-    this.suppliers.forEach((s, idx) => app.addSupplierRow(s.name, s.phone));
-    document.getElementById('supEditModal').classList.remove('hidden');
+    this.suppliers.forEach((s) => app.addSupplierRow(s.name, s.phone));
+    // Принудительное открытие (flex)
+    const m = document.getElementById('supEditModal');
+    m.classList.remove('hidden');
+    m.style.display = 'flex';
   },
   addSupplierRow(name = '', phone = '') {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td><input class="sup-name-inp" value="${name}" placeholder="Название" style="width:100%; border:1px solid #ddd; padding:5px;"></td>
-      <td><input class="sup-phone-inp" value="${phone}" placeholder="Телефон" style="width:100%; border:1px solid #ddd; padding:5px;"></td>
+      <td><input class="sup-name-inp" value="${name}" placeholder="Имя" style="width:100%; padding:5px;"></td>
+      <td><input class="sup-phone-inp" value="${phone}" placeholder="Тел" style="width:100%; padding:5px;"></td>
       <td><button onclick="this.closest('tr').remove()" style="color:red; border:none; background:none;">×</button></td>
     `;
     document.getElementById('supEditBody').appendChild(tr);
@@ -185,11 +205,10 @@ const app = {
       const phone = tr.querySelector('.sup-phone-inp').value.trim();
       if (name) newList.push({ name, phone });
     });
-
     await api.call('saveSuppliers', { list: newList }, 'POST');
     this.suppliers = newList;
-    document.getElementById('supEditModal').classList.add('hidden');
-    alert('Поставщики обновлены');
+    document.getElementById('supEditModal').style.display = 'none';
+    alert('Сохранено');
   },
 
   newProject() { manager.open(''); },
@@ -203,16 +222,24 @@ const app = {
   }
 };
 
-// === MANAGER ===
 const manager = {
   data: [],
   async open(name) {
     document.querySelectorAll('.screen').forEach(el => el.classList.add('hidden'));
     document.getElementById('view-manager').classList.remove('hidden');
+
+    // Сброс инпута перед открытием
+    document.getElementById('mgrName').value = '';
+
     if (name) {
       document.getElementById('mgrName').value = name;
-      const sData = await api.call('getProjectData', { sheetName: name });
-      this.data = sData.map(i => ({ ...i, checked: false, note: i.note || "" }));
+      try {
+        const sData = await api.call('getProjectData', { sheetName: name });
+        this.data = sData.map(i => ({ ...i, checked: false, note: i.note || "" }));
+      } catch (e) {
+        alert("Ошибка загрузки данных проекта");
+        this.data = [];
+      }
     } else {
       document.getElementById('mgrName').value = `Заказ ${new Date().toLocaleDateString()}`;
       this.data = [];
@@ -224,7 +251,8 @@ const manager = {
     tbody.innerHTML = '';
     const filter = document.getElementById('mgrSearch').value.toLowerCase();
     let total = 0;
-    // Опции поставщиков
+
+    // Формируем опции один раз
     const supOpts = `<option value="">-</option>` + app.suppliers.map(s => `<option value="${s.name}">${s.name}</option>`).join('');
 
     this.data.forEach((item, i) => {
@@ -252,35 +280,22 @@ const manager = {
     });
     document.getElementById('mgrTotal').innerText = total.toLocaleString() + ' ₸';
   },
-  upd(i, f, v) {
-    if (f === 'qty' || f === 'price') v = parseFloat(v) || 0;
-    this.data[i][f] = v;
-    if (f === 'qty' || f === 'price') this.render();
-  },
+  upd(i, f, v) { if (f === 'qty' || f === 'price') v = parseFloat(v) || 0; this.data[i][f] = v; if (f === 'qty' || f === 'price') this.render(); },
   check(i, v) { this.data[i].checked = v; this.render(); },
-  toggleAll(v) {
-    const filter = document.getElementById('mgrSearch').value.toLowerCase();
-    this.data.forEach(i => { if (!filter || i.name.toLowerCase().includes(filter)) i.checked = v; });
-    this.render();
-  },
-  sort() {
-    this.data.sort((a, b) => (a.supplier && !b.supplier) ? -1 : (b.supplier && !a.supplier) ? 1 : a.name.localeCompare(b.name));
-    this.render();
-  },
-  delSel() {
-    if (confirm('Удалить?')) { this.data = this.data.filter(i => !i.checked); document.getElementById('mgrAll').checked = false; this.render(); }
-  },
-  addRow() {
-    this.data.unshift({ id: "", art: "", name: "Новая", qty: 1, unit: "шт", price: 0, supplier: "", note: "", done: false });
-    this.render();
-  },
+  toggleAll(v) { const f = document.getElementById('mgrSearch').value.toLowerCase(); this.data.forEach(i => { if (!f || i.name.toLowerCase().includes(f)) i.checked = v }); this.render(); },
+  sort() { this.data.sort((a, b) => (a.supplier && !b.supplier) ? -1 : (b.supplier && !a.supplier) ? 1 : a.name.localeCompare(b.name)); this.render(); },
+  delSel() { if (confirm('Удалить?')) { this.data = this.data.filter(i => !i.checked); document.getElementById('mgrAll').checked = false; this.render(); } },
+  addRow() { this.data.unshift({ id: "", art: "", name: "Новая", qty: 1, unit: "шт", price: 0, supplier: "", note: "", done: false }); this.render(); },
+
+  // MODALS
   openMerge() {
     const sel = this.data.filter(i => i.checked);
-    if (sel.length < 2) return alert('Выберите >= 2 строк');
+    if (sel.length < 2) return alert('Выберите 2+ строки');
     const list = document.getElementById('mergeList');
-    list.innerHTML = sel.map((i, idx) => `
-      <div style="padding:10px; border-bottom:1px solid #eee;"><label><input type="radio" name="mname" value="${idx}" ${idx === 0 ? 'checked' : ''}> <b>${i.name}</b> (${i.qty})</label></div>`).join('');
-    document.getElementById('mergeModal').classList.remove('hidden');
+    list.innerHTML = sel.map((i, idx) => `<div style="padding:10px; border-bottom:1px solid #eee;"><label><input type="radio" name="mname" value="${idx}" ${idx === 0 ? 'checked' : ''}> <b>${i.name}</b> (${i.qty})</label></div>`).join('');
+
+    const m = document.getElementById('mergeModal');
+    m.classList.remove('hidden'); m.style.display = 'flex';
   },
   applyMerge() {
     const radios = document.getElementsByName('mname');
@@ -292,48 +307,46 @@ const manager = {
     main.checked = false;
     this.data = this.data.filter(i => !i.checked || i === main);
     document.getElementById('mgrAll').checked = false;
-    document.getElementById('mergeModal').classList.add('hidden');
+    document.getElementById('mergeModal').style.display = 'none';
     this.render();
   },
   openSup() {
     const sel = this.data.filter(i => i.checked);
     if (!sel.length) return alert('Выберите строки');
     document.getElementById('supSelect').innerHTML = `<option value="">-- Сброс --</option>` + app.suppliers.map(s => `<option value="${s.name}">${s.name}</option>`);
-    document.getElementById('supModal').classList.remove('hidden');
+    const m = document.getElementById('supModal');
+    m.classList.remove('hidden'); m.style.display = 'flex';
   },
   applySup() {
     const v = document.getElementById('supSelect').value;
     this.data.forEach(i => { if (i.checked) { i.supplier = v; i.checked = false; } });
-    document.getElementById('supModal').classList.add('hidden');
+    document.getElementById('supModal').style.display = 'none';
     document.getElementById('mgrAll').checked = false;
     this.render();
   },
   async save() {
     const name = document.getElementById('mgrName').value;
     if (!name) return alert('Введите имя!');
-    // Сохраняем и статус текущий, если он был, иначе 'new'
-    // Но так как мы не знаем статус в редакторе, пусть будет 'new' или тот, что был? 
-    // Упростим: при сохранении статус не меняем, он остается в ячейке B1 (бэкенд сам разберется, если мы его не перезатрем)
-    // Но наш saveAsNamedSheet перезатирает. Значит надо передать.
-    // Пока передадим "active", так как если редактируем - значит работаем.
+    // 10 полей: id, art, name, qty, unit, price, sum, sup, note, done
     const arr = this.data.map(i => [i.id || "", i.art, i.name, i.qty, i.unit, i.price, i.qty * i.price, i.supplier, i.note || "", i.done || false]);
-
-    // ВАЖНО: Мы не знаем текущий статус проекта в редакторе. 
-    // Для простоты сохраняем как "active" (в работе), либо надо прокидывать статус.
     await api.call('saveProject', { sheetName: name, data: arr, status: 'active' }, 'POST');
     alert('Сохранено!');
-    app.goHome(); // Вернуться на главную
+    app.goHome();
   },
+
+  // === IMPORT (ПРИНУДИТЕЛЬНОЕ ОТКРЫТИЕ) ===
   handleFile(e) {
     const f = e.target.files[0];
     if (!f) return;
-    if (typeof XLSX === 'undefined') return alert("Библиотека не готова");
+    if (typeof XLSX === 'undefined') return alert("Библиотека Excel не загрузилась");
+
     const reader = new FileReader();
     reader.onload = function (ev) {
       try {
         const wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' });
         mapper.raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 });
         if (mapper.raw.length) mapper.show();
+        else alert("Файл пустой");
       } catch (err) { alert(err); } finally { e.target.value = ''; }
     };
     reader.readAsArrayBuffer(f);
@@ -349,14 +362,9 @@ const mapper = {
     let html = '<tr>';
     for (let i = 0; i < maxCols; i++) {
       html += `<th><select class="map-sel" data-col="${i}">
-        <option value="">Пропуск</option>
-        <option value="art">Артикул</option>
-        <option value="name">Название</option>
-        <option value="qty">Кол-во</option>
-        <option value="unit">Ед. изм.</option>
-        <option value="price">Цена</option>
-        <option value="supplier">Поставщик</option>
-        <option value="note">Примечание</option>
+        <option value="">Пропуск</option><option value="art">Артикул</option><option value="name">Название</option>
+        <option value="qty">Кол-во</option><option value="unit">Ед. изм.</option><option value="price">Цена</option>
+        <option value="supplier">Поставщик</option><option value="note">Примечание</option>
       </select></th>`;
     }
     html += '</tr>';
@@ -364,7 +372,12 @@ const mapper = {
       html += '<tr>' + Array.from({ length: maxCols }).map((_, i) => `<td style="padding:5px; border:1px solid #eee;">${r[i] || ""}</td>`).join('') + '</tr>';
     });
     tbl.innerHTML = html;
-    document.getElementById('modal').classList.remove('hidden');
+
+    // ПРИНУДИТЕЛЬНО
+    const m = document.getElementById('modal');
+    m.classList.remove('hidden');
+    m.style.display = 'flex';
+    m.style.zIndex = '99999';
   },
   apply() {
     const m = {};
@@ -384,7 +397,7 @@ const mapper = {
         done: false
       });
     });
-    document.getElementById('modal').classList.add('hidden');
+    document.getElementById('modal').style.display = 'none';
     manager.render();
   }
 };
@@ -416,7 +429,6 @@ const buyer = {
       if (filter !== 'ALL' && item.supplier !== filter) return;
       visible++; if (item.done) done++; total += (item.qty * item.price);
 
-      // Ищем телефон поставщика
       const supObj = app.suppliers.find(s => s.name === item.supplier);
       const phoneHtml = supObj && supObj.phone ? `<a href="tel:${supObj.phone}" style="color:#2e7d32; text-decoration:none;"><i class="fas fa-phone"></i></a>` : '';
 
@@ -456,6 +468,20 @@ const buyer = {
     item.done = !item.done;
     this.render();
     api.call('updateItem', { sheetName: this.currentSheet, rowIndex: row, field: 'done', value: item.done }, 'POST');
+  },
+  async download(format) {
+    if (!this.currentSheet) return;
+    if (!confirm("Скачать?")) return;
+    const res = await api.call('getExportLink', { sheetName: this.currentSheet, format: format });
+    if (res.success && res.url) window.open(res.url, '_blank');
+    else alert("Ошибка экспорта");
+  },
+  async sendWhatsapp() {
+    const supplier = document.getElementById('buySupFilter').value;
+    if (supplier === 'ALL') return alert("Выберите поставщика!");
+    const res = await api.call('getWhatsApp', { sheetName: this.currentSheet, supplierName: supplier }, 'POST');
+    if (res.success) window.open(res.url, '_blank');
+    else alert(res.error || "Ошибка генерации");
   }
 };
 
