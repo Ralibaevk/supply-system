@@ -368,7 +368,7 @@ const mapper = {
       </select></th>`;
     }
     html += '</tr>';
-    this.raw.slice(0, 5).forEach(r => {
+    this.raw.slice(0, 20).forEach(r => {
       html += '<tr>' + Array.from({ length: maxCols }).map((_, i) => `<td style="padding:5px; border:1px solid #eee;">${r[i] || ""}</td>`).join('') + '</tr>';
     });
     tbl.innerHTML = html;
